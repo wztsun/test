@@ -1,0 +1,1240 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Workbench · 预览</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Workbench — 客户端式智能体工作台
+   壳     tinted 边框 + 内嵌纸面（8px 内缩 · 16px 圆角 · 1px 边 · 零阴影）
+   栅格   236 侧栏 + 8 间隙 + 纸面（1fr 执行轨 + 340 运行栏）
+   颜色   全屏一个强调色，只给「运行中 / 待审批 / 主操作」；
+          其余靠墨色三级 + 1px 线。深浅两套主题共用一套 token。
+   ═══════════════════════════════════════════════════════════════ */
+:root{
+  --ground:#EFEBE2; --sheet:#FFFDF8; --tray:#FBF7EF;
+  --hover:#E9E3D5; --pill:#E7E1D3; --input:#FFFEFB;
+  --ink:#17140F; --ink2:#4C463F; --ink3:#7C746A; --ink4:#A69C8F;
+  --line:#E3DCCE; --line2:#EFE9DC; --edge:#C9BFA9;
+  --accent:#B23A1F; --accent-w:#F8EDE7; --ok:#41684C; --ok-w:#F7FAF6;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Songti SC",Georgia,serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --r:16px; --rc:6px; --rchip:4px;
+}
+[data-theme="dark"]{
+  --ground:#131110; --sheet:#1B1815; --tray:#221E1A;
+  --hover:#262119; --pill:#282219; --input:#201C18;
+  --ink:#EDE7DC; --ink2:#C3BAAE; --ink3:#8E857A; --ink4:#6B635A;
+  --line:#302A24; --line2:#262119; --edge:#4A4238;
+  --accent:#E2643F; --accent-w:#2A1B15; --ok:#84AC90; --ok-w:#1A221C;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font:13px/1.5 var(--sans);
+  -webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+a{color:inherit}
+:focus-visible{outline:1.5px solid var(--accent);outline-offset:2px;border-radius:3px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.dim{color:var(--ink4)}
+[hidden]{display:none !important}
+
+/* 滚动条：WebView2 默认太粗，压成 8px 细条 */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--edge)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ── 窗口 ───────────────────────────────────────────── */
+.win{height:100vh;display:grid;grid-template-rows:44px 1fr;grid-template-columns:236px 1fr}
+.titlebar{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 8px 0 18px;
+  cursor:default;user-select:none}
+[data-tauri-drag-region]{cursor:default}
+.lights{display:flex;gap:8px;flex:0 0 auto}
+.lights i{width:12px;height:12px;border-radius:50%;display:block;background:#D7CEBE}
+.lights i:nth-child(1){background:#E3A399}
+.lights i:nth-child(2){background:#E6CE9A}
+.lights i:nth-child(3){background:#B5C9A6}
+.crumb{display:flex;align-items:center;gap:8px;color:var(--ink3);font-size:12px;min-width:0}
+.crumb b{color:var(--ink2);font-weight:500}
+.win-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;
+  border:1px solid var(--line);border-radius:var(--rc);color:var(--ink2);font-size:11.5px}
+.pill:hover{background:var(--hover)}
+.pill[data-state="off"]{color:var(--ink3)}
+.pill[data-state="off"] .dot{background:var(--ink4)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ink4);flex:0 0 auto}
+.dot.run{background:var(--accent)} .dot.ok{background:var(--ok)}
+.dot.warn{background:var(--accent)}
+
+/* Windows 上把窗口控件放右边，左侧三个点退成装饰 */
+.winctl{display:none;margin-left:2px}
+html[data-os="win"] .winctl{display:flex}
+html[data-os="win"] .lights{display:none}
+.winctl button{width:38px;height:30px;display:grid;place-items:center;color:var(--ink3);border-radius:4px}
+.winctl button:hover{background:var(--hover);color:var(--ink2)}
+.winctl button[data-win="close"]:hover{background:var(--accent);color:#FFF8F2}
+
+/* ── 侧栏 ───────────────────────────────────────────── */
+.side{display:flex;flex-direction:column;padding:6px 10px 10px;gap:14px;min-height:0;overflow:hidden}
+.brand{display:flex;align-items:center;gap:9px;padding:8px 8px 4px}
+.mark{width:22px;height:22px;flex:0 0 auto;color:var(--accent)}
+.brand-name{font-family:var(--serif);font-size:15px;line-height:1.1;letter-spacing:.01em}
+.brand-sub{font-size:10.5px;color:var(--ink4);letter-spacing:.06em;margin-top:2px}
+.ws{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 8px;
+  border:1px solid var(--line);border-radius:var(--rc);background:var(--tray);text-align:left}
+.ws:hover{background:var(--hover)}
+.ws .av{width:18px;height:18px;border-radius:3px;background:var(--ink);color:var(--sheet);
+  font-size:9.5px;display:grid;place-items:center;font-family:var(--serif);flex:0 0 auto}
+.ws .who{font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws .caret{margin-left:auto;color:var(--ink4)}
+.nav{display:flex;flex-direction:column;gap:1px}
+.nav a{display:flex;align-items:center;gap:9px;height:32px;padding:0 8px;border-radius:var(--rc);
+  color:var(--ink2);font-size:13px;text-decoration:none}
+.nav a svg{width:15px;height:15px;color:var(--ink3);flex:0 0 auto}
+.nav a:hover{background:var(--hover)}
+.nav a[aria-current]{background:var(--pill);color:var(--ink);font-weight:500}
+.nav a[aria-current] svg{color:var(--ink2)}
+.nav .count{margin-left:auto;font-size:11px;color:var(--accent);font-family:var(--mono)}
+.nav .count[data-zero="1"]{display:none}
+.grp{font-size:11px;color:var(--ink4);padding:0 8px;margin:2px 0 4px}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding:0 2px}
+.meter{border-top:1px solid var(--line);padding:10px 8px 2px}
+.meter-row{display:flex;justify-content:space-between;font-size:11px;color:var(--ink3)}
+.meter-bar{height:2px;background:var(--line);margin:7px 0 0;position:relative}
+.meter-bar i{position:absolute;inset:0 auto 0 0;background:var(--ink2)}
+.user{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--rc);width:100%;text-align:left}
+.user:hover{background:var(--hover)}
+.user .av{width:22px;height:22px;border-radius:50%;background:var(--pill);color:var(--ink2);
+  display:grid;place-items:center;font-size:11px;flex:0 0 auto}
+.user .nm{font-size:12.5px}
+.user .rl{font-size:10.5px;color:var(--ink4)}
+
+/* ── 纸面 ───────────────────────────────────────────── */
+.sheet{grid-row:2;grid-column:2;margin:0 8px 8px 0;background:var(--sheet);
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden;min-height:0;
+  display:flex;flex-direction:column}
+.view{flex:1;min-height:0}
+.view[hidden]{display:none}
+.view-workbench{display:grid;grid-template-rows:auto 1fr auto;grid-template-columns:1fr 340px}
+.view-page{display:flex;flex-direction:column}
+
+/* 任务头 */
+.head{grid-column:1/3;padding:22px 28px 16px;border-bottom:1px solid var(--line2)}
+.head-top{display:flex;align-items:flex-start;gap:14px}
+.title{font-family:var(--serif);font-size:20px;line-height:1.35;margin:0 0 6px;font-weight:500;max-width:52ch}
+.title em{font-style:normal;color:var(--ink2)}
+.state{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;
+  border:1px solid var(--accent);border-radius:var(--rchip);color:var(--accent);font-size:11px;white-space:nowrap}
+.head-act{margin-left:auto;display:flex;gap:6px;align-items:center;flex:0 0 auto;margin-top:4px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 11px;
+  border:1px solid var(--line);border-radius:var(--rc);font-size:12.5px;color:var(--ink2);white-space:nowrap}
+.btn:hover{background:var(--hover);border-color:var(--edge)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#FFF8F2}
+.btn-primary:hover{filter:brightness(.93);background:var(--accent)}
+.sub{font-size:12px;color:var(--ink3);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sub .k{color:var(--ink2)}
+.sep{width:1px;height:10px;background:var(--line);flex:0 0 auto}
+
+/* ── 执行轨 ─────────────────────────────────────────── */
+.trail{grid-row:2;grid-column:1;overflow-y:auto;padding:18px 28px 26px;min-height:0}
+.trail-inner{max-width:760px}
+.step{position:relative;display:grid;grid-template-columns:22px 1fr auto;column-gap:12px;padding:0 0 20px}
+.step::before{content:"";position:absolute;left:10px;top:22px;bottom:0;width:1px;background:var(--line)}
+.step:last-child::before{display:none}
+.node{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:var(--sheet);
+  display:grid;place-items:center;margin-top:1px;position:relative;z-index:1;
+  font-size:10px;color:var(--ink4);font-family:var(--mono)}
+.node.done{border-color:var(--ok);color:var(--ok)}
+.node.run{border-color:var(--accent);color:var(--accent)}
+.node.wait{border-color:var(--accent);color:var(--accent);background:var(--accent-w)}
+.st{font-size:13.5px;color:var(--ink);line-height:1.45}
+.st.quiet{color:var(--ink3)}
+.smeta{display:flex;gap:8px;align-items:center;margin-top:4px;font-size:11.5px;color:var(--ink3);flex-wrap:wrap}
+.tool{font-family:var(--mono);font-size:10.5px;color:var(--ink2);
+  border:1px solid var(--line);border-radius:3px;padding:1px 5px;background:var(--tray)}
+.dur{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink4);padding-top:3px;white-space:nowrap}
+.term{margin-top:9px;border:1px solid var(--line);border-radius:var(--rc);background:var(--tray);
+  padding:9px 11px;font-family:var(--mono);font-size:11.5px;line-height:1.65;color:var(--ink2);overflow-x:auto}
+.term span{display:block;white-space:pre-wrap}
+.term .err{color:var(--accent)} .term .ok{color:var(--ok)} .term .dim{color:var(--ink4)}
+.caret{display:inline-block;width:6px;height:12px;background:var(--accent);vertical-align:-1px;animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.caret{animation:none}}
+
+/* 审批卡 */
+.approve{margin-top:10px;border:1px solid var(--accent);border-radius:var(--rc);
+  background:var(--accent-w);padding:13px 14px 12px}
+.approve-h{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--accent);letter-spacing:.02em;margin-bottom:6px}
+.approve p{margin:0 0 10px;font-size:12.5px;color:var(--ink2);line-height:1.6}
+.approve .why{font-size:11.5px;color:var(--ink3);margin:0 0 11px}
+.approve .acts{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.approve .more{margin-left:auto;font-size:11.5px;color:var(--ink3);text-decoration:underline;text-underline-offset:3px}
+.approve.done{border-color:var(--ok);background:var(--ok-w)}
+.approve.done .approve-h{color:var(--ok)}
+
+/* ── 运行栏 ─────────────────────────────────────────── */
+.rail{grid-row:2;grid-column:2;border-left:1px solid var(--line2);padding:20px 20px 18px;overflow-y:auto;min-height:0}
+.rail h3{font-size:11.5px;font-weight:500;color:var(--ink3);letter-spacing:.04em;margin:0 0 9px;
+  display:flex;align-items:center;gap:7px}
+.rail h3 .n{font-family:var(--mono);color:var(--ink4);font-weight:400}
+.rail section{margin-bottom:20px}
+.rail section:last-child{margin-bottom:0}
+.todo{display:flex;flex-direction:column;gap:1px}
+.todo div{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--ink2);padding:3px 0;line-height:1.45}
+.todo .box{width:13px;height:13px;border:1px solid var(--edge);border-radius:3px;flex:0 0 auto;margin-top:2px;
+  display:grid;place-items:center;font-size:9px;color:transparent}
+.todo .box.d{background:var(--ok);border-color:var(--ok);color:var(--sheet)}
+.todo .box.p{border-color:var(--accent);color:var(--accent);font-size:8px}
+.todo .done{color:var(--ink4);text-decoration:line-through;text-decoration-color:var(--edge)}
+.job{padding:8px 0;border-bottom:1px solid var(--line2)}
+.job:last-child{border-bottom:0}
+.job-h{display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:var(--ink)}
+.job-h .id{font-family:var(--mono);font-size:10.5px;color:var(--ink4);margin-left:auto}
+.bar{height:2px;background:var(--line);margin:6px 0 5px;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+.bar i.ok{background:var(--ok)}
+.job-m{display:flex;justify-content:space-between;font-size:11px;color:var(--ink4)}
+.file{display:flex;align-items:baseline;gap:8px;padding:5px 0;font-size:12.5px;color:var(--ink2);
+  width:100%;text-align:left;border-radius:4px}
+.file:hover{background:var(--hover)}
+.file .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file .sz{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink4);flex:0 0 auto}
+.file svg{color:var(--ink4);flex:0 0 auto;align-self:center}
+.agents{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2)}
+.agents .av{width:18px;height:18px;border-radius:50%;background:var(--ok-w);color:var(--ok);
+  display:grid;place-items:center;font-size:9.5px;font-family:var(--mono);border:1px solid var(--ok)}
+.money{border-top:1px solid var(--line);padding-top:12px}
+.money .big{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:15px;color:var(--ink)}
+.money .big small{font-size:11px;color:var(--ink4);margin-left:4px;font-family:var(--sans)}
+.money .split{display:flex;gap:12px;font-size:11px;color:var(--ink4);margin-top:5px;flex-wrap:wrap}
+.money .split b{color:var(--ink3);font-weight:400;font-family:var(--mono)}
+.rail-empty{font-size:12px;color:var(--ink4);padding:2px 0}
+
+/* ── 输入区 ─────────────────────────────────────────── */
+.composer{grid-row:3;grid-column:1;border-top:1px solid var(--line2);padding:12px 28px 14px;background:var(--sheet)}
+.box{border:1px solid var(--line);border-radius:10px;background:var(--input);padding:9px 10px 8px}
+.box:focus-within{border-color:var(--edge)}
+.box textarea{width:100%;border:0;resize:none;outline:none;background:transparent;
+  font:13px/1.55 var(--sans);color:var(--ink);height:44px}
+.box textarea::placeholder{color:var(--ink4)}
+.cbar{display:flex;align-items:center;gap:4px;margin-top:4px}
+.icon-btn{width:26px;height:26px;border-radius:5px;display:grid;place-items:center;color:var(--ink3)}
+.icon-btn:hover{background:var(--hover);color:var(--ink2)}
+.sp{flex:1}
+.chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 7px;border-radius:5px;
+  font-size:11.5px;color:var(--ink3);border:1px solid transparent}
+.chip:hover{background:var(--hover);border-color:var(--line)}
+.send{height:26px;padding:0 12px;border-radius:var(--rc);font-size:12.5px}
+.hint{margin-top:7px;font-size:11px;color:var(--ink4);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:3px;padding:0 4px;
+  color:var(--ink3);background:var(--tray)}
+
+/* ── 列表页 / 设置页 共用页头 ───────────────────────── */
+.page-head{padding:22px 28px 14px;border-bottom:1px solid var(--line2);display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.page-head h1{font-family:var(--serif);font-size:20px;font-weight:500;margin:0 0 4px;line-height:1.3}
+.page-head .sub{margin-top:2px}
+.page-body{flex:1;overflow-y:auto;padding:0 28px 24px;min-height:0}
+
+/* ── 任务列表 ───────────────────────────────────────── */
+.filters{display:flex;gap:2px;align-items:center;padding:12px 0 8px}
+.filters button{height:26px;padding:0 9px;border-radius:5px;font-size:12px;color:var(--ink3)}
+.filters button:hover{background:var(--hover)}
+.filters button[aria-pressed="true"]{background:var(--pill);color:var(--ink)}
+.filters .sp{flex:1}
+table.runs{width:100%;border-collapse:collapse;font-size:12.5px}
+table.runs th{text-align:left;font-weight:500;font-size:11px;color:var(--ink4);letter-spacing:.03em;
+  padding:0 10px 8px 0;border-bottom:1px solid var(--line)}
+table.runs th.r,table.runs td.r{text-align:right;padding-right:0}
+table.runs td{padding:11px 10px 11px 0;border-bottom:1px solid var(--line2);vertical-align:top}
+table.runs tr:hover td{background:var(--tray)}
+table.runs tr:hover td:first-child{box-shadow:inset 2px 0 0 var(--line)}
+table.runs td:first-child{padding-left:10px}
+table.runs tbody tr{cursor:pointer}
+.rname{color:var(--ink);font-size:13px;line-height:1.4}
+.rsub{color:var(--ink4);font-size:11px;margin-top:3px;font-family:var(--mono)}
+.status{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:var(--ink2)}
+.status.wait{color:var(--accent)}
+.status.run{color:var(--ink)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink2);white-space:nowrap}
+.empty{padding:36px 0;text-align:center;color:var(--ink4);font-size:12.5px}
+
+/* ── 设置 ───────────────────────────────────────────── */
+.set-wrap{max-width:820px;padding-top:18px}
+.set-sec{padding:0 0 22px;margin-bottom:22px;border-bottom:1px solid var(--line2)}
+.set-sec:last-of-type{border-bottom:0}
+.set-sec h2{font-size:12.5px;font-weight:500;color:var(--ink);margin:0 0 3px;letter-spacing:.01em}
+.set-sec .lead{font-size:11.5px;color:var(--ink3);margin:0 0 14px;line-height:1.6}
+.row{display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid var(--line2)}
+.row:last-child{border-bottom:0}
+.row .lbl{flex:1;min-width:0}
+.row .lbl b{display:block;font-size:12.5px;font-weight:400;color:var(--ink)}
+.row .lbl span{display:block;font-size:11px;color:var(--ink4);margin-top:2px;line-height:1.5}
+.radios{display:flex;flex-direction:column;gap:10px}
+.radio{display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:12.5px;color:var(--ink2)}
+.radio input{appearance:none;width:14px;height:14px;border:1px solid var(--edge);border-radius:50%;
+  margin:2px 0 0;flex:0 0 auto;position:relative;cursor:pointer;background:var(--sheet)}
+.radio input:checked{border-color:var(--accent);border-width:1.5px}
+.radio input:checked::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--accent)}
+.radio b{font-weight:400;color:var(--ink);display:block}
+.radio span{display:block;font-size:11px;color:var(--ink4);margin-top:1px}
+.sw{width:34px;height:19px;border-radius:10px;background:var(--line);position:relative;flex:0 0 auto;border:1px solid var(--line)}
+.sw i{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--sheet);
+  box-shadow:0 0 0 1px var(--line);transition:left .12s ease}
+.sw[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
+.sw[aria-checked="true"] i{left:17px;background:#FFF8F2;box-shadow:none}
+.field{height:30px;min-width:200px;border:1px solid var(--line);border-radius:var(--rc);background:var(--input);
+  color:var(--ink2);font:12px var(--mono);padding:0 9px}
+.field:focus{outline:none;border-color:var(--edge)}
+.field.wide{width:100%;max-width:380px}
+.select{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 9px;border:1px solid var(--line);
+  border-radius:var(--rc);font-size:12.5px;color:var(--ink2);background:var(--input)}
+.set-foot{display:flex;gap:8px;align-items:center;padding:16px 0 0;border-top:1px solid var(--line)}
+.set-foot .sp{flex:1}
+.engine-state{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink3)}
+.engine-state .num{color:var(--ink2)}
+
+/* ── 提示条 ─────────────────────────────────────────── */
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;
+  background:var(--ink);color:var(--sheet);font-size:12.5px;padding:8px 14px;border-radius:var(--rc);
+  max-width:min(560px,80vw);text-align:center}
+.toast[data-kind="err"]{background:var(--accent);color:#FFF8F2}
+
+/* 窄窗 */
+@media (max-width:1000px){
+  .win{grid-template-columns:64px 1fr}
+  .brand-name,.brand-sub,.ws .who,.ws .caret,.nav span:not(.count),.grp,.meter,.user .nm,.user .rl{display:none}
+  .ws{justify-content:center;padding:0}
+  .nav a{justify-content:center;padding:0}
+  .rail{display:none}
+  .view-workbench{grid-template-columns:1fr}
+  .head,.trail,.composer{grid-column:1}
+  .head,.page-head{padding:16px 18px 12px}
+  .trail,.composer,.page-body{padding-left:18px;padding-right:18px}
+  .title,.page-head h1{font-size:17px}
+  table.runs th:nth-child(4),table.runs td:nth-child(4){display:none}
+}
+</style>
+</head>
+<body data-view="workbench">
+<div class="win">
+
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="crumb" data-tauri-drag-region>
+      <b>workbench</b><span>/</span><span id="crumb-tail">会话 / 收录核查</span>
+    </div>
+
+    <div class="win-right">
+      <button class="pill" id="engine-pill" data-state="off" title="引擎连接状态">
+        <span class="dot" id="engine-dot"></span><span id="engine-label">引擎未连</span>
+      </button>
+      <button class="pill" id="bg-pill" title="后台作业">
+        <span class="dot run"></span><span id="bg-label">后台 2</span>
+      </button>
+      <button class="pill" id="theme-btn" aria-label="切换深浅色">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6"/></svg>
+        <span id="theme-label">浅色</span>
+      </button>
+
+      <div class="winctl">
+        <button data-win="min" aria-label="最小化">
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2"><path d="M2 5h6"/></svg>
+        </button>
+        <button data-win="max" aria-label="最大化">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.2" y="2.2" width="5.6" height="5.6" rx=".6"/></svg>
+        </button>
+        <button data-win="close" aria-label="关闭">
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2"><path d="M2.6 2.6l4.8 4.8M7.4 2.6L2.6 7.4"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 4.5 15.5 12 6 19.5"/><path d="M13.5 4.5 21 12l-7.5 7.5" opacity=".45"/>
+      </svg>
+      <div><div class="brand-name">Workbench</div><div class="brand-sub">DEEPSEEK HARNESS</div></div>
+    </div>
+
+    <button class="ws" id="ws-btn">
+      <span class="av">秀</span><span class="who" id="ws-name">天下秀 · 增长组</span>
+      <svg class="caret" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg>
+    </button>
+
+    <nav class="nav">
+      <a href="#" data-nav="workbench" aria-current="page">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M2 6h12M6 6v7.5"/></svg>
+        <span>工作台</span>
+      </a>
+      <a href="#" data-nav="tasks">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>
+        <span>任务</span>
+      </a>
+      <a href="#" data-nav="settings">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1"/></svg>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="grp">需要你处理</div>
+    <nav class="nav">
+      <a href="#" id="nav-approvals" data-nav="tasks">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5 13.5 5v6L8 13.5 2.5 11V5z"/><path d="M8 8v5.5M8 8l5.5-3M8 8 2.5 5"/></svg>
+        <span>待审批</span><span class="count" id="nav-count">2</span>
+      </a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="meter">
+        <div class="meter-row"><span>本月用量</span><span class="num" id="meter-pct">62%</span></div>
+        <div class="meter-bar"><i id="meter-fill"></i></div>
+      </div>
+      <button class="user"><span class="av">陈</span><span><span class="nm">陈默</span><br><span class="rl">管理员</span></span></button>
+    </div>
+  </aside>
+
+  <main class="sheet">
+
+    <section class="view view-workbench" id="view-workbench">
+      <header class="head">
+        <div class="head-top">
+          <div>
+            <h1 class="title">把 <em>weiq.com</em> 的 Google 收录情况查清楚</h1>
+            <div class="sub">
+              <span class="state" id="run-state"><span class="dot run"></span><span id="run-state-text">运行中 · 第 4 / 6 步</span></span>
+              <span class="sep"></span><span>开始于 <span class="k num">18:26</span></span>
+              <span class="sep"></span><span>已用 <span class="k num" id="run-elapsed">11 分 04 秒</span></span>
+            </div>
+          </div>
+          <div class="head-act">
+            <button class="btn" id="btn-abort">中断</button>
+            <button class="btn" aria-label="更多">···</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="trail">
+        <div class="trail-inner">
+
+          <article class="step">
+            <div class="node done">✓</div>
+            <div>
+              <div class="st">解析任务范围，确认目标域名与核查口径</div>
+              <div class="smeta"><span class="tool">read</span><span>任务说明.md</span><span>·</span><span>口径：近 30 天收录</span></div>
+            </div>
+            <div class="dur">0.6s</div>
+          </article>
+
+          <article class="step">
+            <div class="node done">✓</div>
+            <div>
+              <div class="st">抓取站点自身：首页、robots.txt、sitemap.xml</div>
+              <div class="smeta"><span class="tool">web_fetch</span><span>3 次请求</span><span>·</span><span>robots.txt 404、sitemap.xml 404</span></div>
+            </div>
+            <div class="dur num">4.2s</div>
+          </article>
+
+          <article class="step">
+            <div class="node done">✓</div>
+            <div>
+              <div class="st quiet">交叉核对搜索源，尝试取回 site: 查询结果</div>
+              <div class="smeta">
+                <span class="tool">web_search</span><span>401 鉴权失败</span><span>·</span>
+                <span class="tool">bing</span><span>site: 被忽略</span><span>·</span>
+                <span class="tool">ddg</span><span>403</span>
+              </div>
+              <div class="term">
+<span>$ web_search "site:weiq.com"</span>
+<span class="err">HTTP 401  api key ****bfdf is invalid</span>
+<span class="dim">fallback → cn.bing.com / duckduckgo / brave / ecosia</span>
+<span class="err">429 / 403 / 人机验证 — 均未返回结果</span>
+<span class="dim">结论：拿不到收录条数，改走诊断路径</span>
+              </div>
+            </div>
+            <div class="dur num">12.8s</div>
+          </article>
+
+          <article class="step" id="step-approve">
+            <div class="node wait" id="node-4">!</div>
+            <div>
+              <div class="st">生成诊断报告，并用预览页截图校对</div>
+              <div class="smeta"><span class="tool">bash</span><span>npm run build --workspace apps/web</span><span>·</span><span>重试 2 次后仍失败</span></div>
+              <div class="term">
+<span>$ npm run build --workspace apps/web</span>
+<span class="dim">▲ building 3 entries…</span>
+<span class="err">error TS2304: Cannot find name 'SitemapIndex'.</span>
+<span class="dim">  at src/sitemap/render.ts:41:18</span>
+<span class="dim">exit code 1 · 重试 2 次，同一处失败</span><span class="caret"></span>
+              </div>
+
+              <div class="approve" id="approve">
+                <div class="approve-h">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5v7M8 12.5v.1"/><circle cx="8" cy="8" r="6.2"/></svg>
+                  需要你批准才能继续
+                </div>
+                <p>在 <span class="num">apps/web</span> 里补上缺失的类型定义，然后重跑构建。</p>
+                <p class="why">为什么停下：写文件 + 执行构建，我默认不自己动手。改法是把 <span class="num">SitemapIndex</span> 从 <span class="num">@types/sitemap</span> 引入。</p>
+                <div class="acts">
+                  <button class="btn btn-primary" id="btn-approve">批准并继续</button>
+                  <button class="btn" id="btn-approve-type">改成只补类型</button>
+                  <button class="btn" id="btn-reject">拒绝</button>
+                  <a class="more" href="#" id="link-diff">看完整 diff</a>
+                </div>
+              </div>
+            </div>
+            <div class="dur num">0:47</div>
+          </article>
+
+          <article class="step">
+            <div class="node todo">5</div>
+            <div>
+              <div class="st quiet">截图校对：桌面 1440 与手机 390 两个宽度</div>
+              <div class="smeta"><span class="dim">等待上一步完成</span></div>
+            </div>
+            <div class="dur">—</div>
+          </article>
+
+          <article class="step">
+            <div class="node todo">6</div>
+            <div>
+              <div class="st quiet">汇总成报告，附 sitemap 与 robots 的修复建议</div>
+              <div class="smeta"><span class="dim">等待中</span></div>
+            </div>
+            <div class="dur">—</div>
+          </article>
+
+        </div>
+      </div>
+
+      <aside class="rail" id="rail"></aside>
+
+      <div class="composer">
+        <div class="box">
+          <textarea id="composer-input" placeholder="继续这个任务，或 @ 引用文件…" aria-label="输入"></textarea>
+          <div class="cbar">
+            <button class="icon-btn" aria-label="引用文件">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.5 5.5a2.5 2.5 0 0 1 0 3.5l-1.6 1.6a2.5 2.5 0 0 1-3.5-3.5l.9-.9"/><path d="M6.5 10.5a2.5 2.5 0 0 1 0-3.5l1.6-1.6a2.5 2.5 0 0 1 3.5 3.5l-.9.9"/></svg>
+            </button>
+            <button class="icon-btn" aria-label="附件">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+            </button>
+            <span class="sp"></span>
+            <button class="chip" id="chip-model">V4.1 Flash <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg></button>
+            <button class="chip" id="chip-scope">只读 <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg></button>
+            <button class="btn btn-primary send" id="btn-send">发送</button>
+          </div>
+        </div>
+        <div class="hint"><kbd>Ctrl</kbd><kbd>↵</kbd> 发送 · <kbd>⇧</kbd><kbd>↵</kbd> 换行 · 审批请在上方卡片里处理</div>
+      </div>
+    </section>
+
+    <section class="view view-page" id="view-tasks" hidden>
+      <header class="page-head">
+        <div>
+          <h1>任务</h1>
+          <div class="sub" id="tasks-summary"></div>
+        </div>
+        <div style="margin-left:auto"><button class="btn btn-primary" id="btn-new-task">新建任务</button></div>
+      </header>
+      <div class="page-body">
+        <div class="filters" id="tasks-filters">
+          <button data-filter="all" aria-pressed="true">全部</button>
+          <button data-filter="run" aria-pressed="false">运行中</button>
+          <button data-filter="wait" aria-pressed="false">待审批</button>
+          <button data-filter="done" aria-pressed="false">已完成</button>
+          <span class="sp"></span>
+          <button id="btn-sort">按最近活动排序</button>
+        </div>
+        <table class="runs">
+          <thead>
+            <tr><th>任务</th><th>状态</th><th>步骤</th><th class="r">耗时</th><th class="r">消耗</th></tr>
+          </thead>
+          <tbody id="tasks-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="view view-page" id="view-settings" hidden>
+      <header class="page-head">
+        <div>
+          <h1>设置</h1>
+          <div class="sub"><span>审批策略、模型、工具范围与引擎</span><span class="sep"></span><span>作用范围：天下秀 · 增长组</span></div>
+        </div>
+      </header>
+      <div class="page-body">
+        <div class="set-wrap">
+
+          <div class="set-sec">
+            <h2>审批</h2>
+            <p class="lead">决定我在动手之前要不要先问你。写得越松，跑得越快，也越需要你信任。</p>
+            <form class="radios" id="set-approval">
+              <label class="radio"><input type="radio" name="approval" value="every"><span><b>每步都确认</b><span>任何写文件、执行命令、访问网络的行为都先停下来问你。</span></span></label>
+              <label class="radio"><input type="radio" name="approval" value="risky" checked><span><b>只确认有风险的操作</b><span>读文件、查网页直接做；写文件、跑构建、删改数据先问你。当前这一轮就停在这条上。</span></span></label>
+              <label class="radio"><input type="radio" name="approval" value="final"><span><b>只在最后确认</b><span>全部做完再给结果，中途不停。适合跑一遍就能重来的任务。</span></span></label>
+            </form>
+          </div>
+
+          <div class="set-sec">
+            <h2>模型</h2>
+            <p class="lead">默认模型，以及超出预算时的降级顺序。</p>
+            <div class="row">
+              <div class="lbl"><b>默认模型</b><span>新任务默认用它起跑</span></div>
+              <button class="select" id="set-model">V4.1 Flash <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>超预算时降级</b><span>本轮用量超过月预算的 80% 后自动切换</span></div>
+              <button class="sw" id="sw-downgrade" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>月预算上限</b><span>到线就停，不会偷偷继续烧</span></div>
+              <input class="field" id="set-budget" value="￥ 300.00" aria-label="月预算上限" />
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <h2>工具范围</h2>
+            <p class="lead">关掉的工具不会出现在我的工具表里，我也不会被告知它存在。</p>
+            <div class="row">
+              <div class="lbl"><b>终端</b><span>执行 shell 命令，含后台作业</span></div>
+              <button class="sw" id="sw-terminal" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>网页抓取</b><span>读取给定 URL 的正文</span></div>
+              <button class="sw" id="sw-fetch" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>网页搜索</b><span>当前密钥无效，最近 5 次调用均失败</span></div>
+              <button class="sw" id="sw-search" role="switch" aria-checked="false"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>子代理</b><span>把互不依赖的活分出去并行跑</span></div>
+              <button class="sw" id="sw-subagent" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>工作区根目录</b><span>我能读写的边界，出了这个目录要单独批准</span></div>
+              <input class="field wide" id="set-workspace" value="" aria-label="工作区根目录" />
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <h2>引擎</h2>
+            <p class="lead">Workbench 自己不管模型调用，它托管一个本地的 DeepSeek Harness 进程。这里决定怎么找到它、怎么拉起来、关窗时要不要收走。</p>
+            <div class="row">
+              <div class="lbl"><b>可执行文件</b><span>PATH 上的名字或绝对路径；默认 <span class="num">dsh</span></span></div>
+              <input class="field wide" id="cfg-command" value="dsh" aria-label="引擎可执行文件" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>启动参数</b><span>空格分隔，默认 <span class="num">web</span></span></div>
+              <input class="field wide" id="cfg-args" value="web" aria-label="启动参数" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>引擎地址</b><span>端口探测与 HTTP 代理都打这里</span></div>
+              <input class="field wide" id="cfg-url" value="http://127.0.0.1:3080" aria-label="引擎地址" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>开机自动拉起</b><span>启动应用时若没检测到服务，就自己 spawn 一个</span></div>
+              <button class="sw" id="sw-autostart" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>退出时关闭引擎</b><span>只收拾本应用拉起的进程，外部已在跑的不碰</span></div>
+              <button class="sw" id="sw-killonexit" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>发消息接口</b><span>留空表示未接协议：消息只在本地记账，不会真的发出去</span></div>
+              <input class="field wide" id="cfg-prompt-path" value="" placeholder="/api/..." aria-label="发消息接口路径" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>审批接口</b><span>留空表示未接协议：批准动作只改界面状态</span></div>
+              <input class="field wide" id="cfg-approve-path" value="" placeholder="/api/..." aria-label="审批接口路径" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>进程控制</b><span id="engine-state-text">未知</span></div>
+              <button class="btn" id="btn-engine-start">启动引擎</button>
+              <button class="btn" id="btn-engine-stop">停止</button>
+            </div>
+          </div>
+
+          <div class="set-foot">
+            <span class="dim" style="font-size:11.5px" id="set-meta">上次修改：—</span>
+            <span class="sp"></span>
+            <button class="btn" id="btn-reset">恢复默认</button>
+            <button class="btn btn-primary" id="btn-save">保存更改</button>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+window.SEED = {
+  run: { id: 'r_7f21', step: 4, steps: 6, elapsedSec: 664 },
+
+  todos: [
+    { t: '确认核查口径', s: 'done' },
+    { t: '抓取 robots 与 sitemap', s: 'done' },
+    { t: '尝试搜索源', s: 'done' },
+    { t: '补类型并重跑构建', s: 'run' },
+    { t: '两个宽度截图校对', s: 'todo' },
+    { t: '写修复建议', s: 'todo' },
+    { t: '汇总成一份报告', s: 'todo' }
+  ],
+
+  jobs: [
+    { t: '预览构建', id: '8c41', state: 'run', pct: 62 },
+    { t: '整站抓取', id: '9b07', state: 'done', note: '412 页' }
+  ],
+
+  agents: [{ av: 'a', name: 'audit-bot', text: '正在核对站内互链' }],
+
+  artifacts: [
+    { name: '收录诊断.md', size: '12.4 KB', path: '/opt/dsh/weiq-audit/收录诊断.md' },
+    { name: 'sitemap.py', size: '2.1 KB', path: '/opt/dsh/weiq-audit/sitemap.py' },
+    { name: '竞品对照.csv', size: '8.6 KB', path: '/opt/dsh/weiq-audit/竞品对照.csv' }
+  ],
+
+  usage: { tokens: '18.4k', inp: '14.2k', out: '4.2k', cache: '61%', cny: '¥0.42' },
+
+  tasks: [
+    { name: '把 weiq.com 的 Google 收录情况查清楚', sub: '/opt/dsh/weiq-audit · 陈默', state: 'wait', step: '4 / 6', dur: '11:04', cost: '18.4k' },
+    { name: '把上新流程的 12 个表单接进审核队列', sub: '/opt/dsh/ops-forms · 陈默', state: 'run', step: '7 / 9', dur: '26:31', cost: '41.2k' },
+    { name: '重跑上周的投放归因，输出口径对比', sub: '/opt/dsh/attr · 数据组', state: 'done', step: '5 / 5', dur: '08:12', cost: '9.7k' },
+    { name: '给 sitemap 生成脚本补单测', sub: '/opt/dsh/weiq-audit · 陈默', state: 'done', step: '4 / 4', dur: '03:40', cost: '6.1k' },
+    { name: '把 2026 年内容日历拆成 96 个选题', sub: '/opt/dsh/content · 增长组', state: 'wait', step: '2 / 8', dur: '04:58', cost: '7.4k' },
+    { name: '抓竞品近 90 天的公众号推文标题', sub: '/opt/dsh/research · 数据组', state: 'stopped', step: '3 / 6', dur: '02:11', cost: '4.3k' }
+  ]
+};
+</script>
+
+<script>
+(function () {
+  const T = window.__TAURI__ || null;
+  const core = T && T.core;
+  const invoke = core && typeof core.invoke === 'function' ? (...a) => core.invoke(...a)
+    : (T && typeof T.invoke === 'function' ? (...a) => T.invoke(...a) : null);
+  const listenRaw = T && T.event && typeof T.event.listen === 'function' ? (...a) => T.event.listen(...a) : null;
+
+  const winApi = T && T.window;
+  let win = null;
+  try {
+    if (winApi) {
+      win = typeof winApi.getCurrentWindow === 'function' ? winApi.getCurrentWindow()
+        : (typeof winApi.getCurrent === 'function' ? winApi.getCurrent() : null);
+    }
+  } catch (e) { win = null; }
+
+  function guard(fn) {
+    return (...args) => {
+      try { return fn(...args); } catch (e) { console.warn('[wb]', e); return undefined; }
+    };
+  }
+
+  window.WB = {
+    native: !!invoke,
+    win,
+
+    async call(cmd, args) {
+      if (!invoke) throw new Error('不在客户端里运行');
+      return invoke(cmd, args);
+    },
+
+    async tryCall(cmd, args) {
+      if (!invoke) return null;
+      try { return await invoke(cmd, args); } catch (e) { console.warn('[wb]', cmd, e); return null; }
+    },
+
+    async on(evt, cb) {
+      if (!listenRaw) return;
+      try { await listenRaw(evt, (e) => cb(e.payload)); } catch (e) { console.warn('[wb] listen', evt, e); }
+    },
+
+    show: guard(() => win && win.show && win.show()),
+    minimize: guard(() => win && win.minimize && win.minimize()),
+    toggleMax: guard(() => win && win.toggleMaximize && win.toggleMaximize()),
+    close: guard(() => win && win.close && win.close())
+  };
+
+  const ua = navigator.userAgent;
+  document.documentElement.dataset.os =
+    /Windows/i.test(ua) ? 'win' : (/Macintosh|Mac OS X/i.test(ua) ? 'mac' : 'linux');
+})();
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const clone = (o) => (typeof structuredClone === 'function' ? structuredClone(o) : JSON.parse(JSON.stringify(o)));
+  const ESC = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const pad = (n) => String(n).padStart(2, '0');
+
+  const SEED = window.SEED;
+  const LS = 'wb.settings';
+
+  const DEFAULTS = {
+    approval: 'risky',
+    model: 'V4.1 Flash',
+    budget_cny: 300,
+    downgrade_over_budget: true,
+    tools: { terminal: true, fetch: true, search: false, subagent: true },
+    workspace_root: '',
+    theme: 'light',
+    engine: {
+      command: 'dsh', args: ['web'], url: 'http://127.0.0.1:3080', workdir: '',
+      autostart: true, kill_on_exit: true, start_timeout_sec: 25,
+      prompt_path: '', approve_path: ''
+    }
+  };
+
+  const S = {
+    settings: clone(DEFAULTS),
+    engine: { running: false, reachable: false, pid: null, url: 'http://127.0.0.1:3080' },
+    filter: 'all',
+    sortByCost: false,
+    elapsed: SEED.run.elapsedSec,
+    decisions: []
+  };
+
+  let toastTimer = 0;
+  function toast(msg, kind) {
+    const el = $('#toast');
+    el.textContent = msg;
+    el.dataset.kind = kind || '';
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 3600);
+  }
+
+  function applyTheme() {
+    const dark = S.settings.theme === 'dark';
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    $('#theme-label').textContent = dark ? '深色' : '浅色';
+  }
+
+  const CRUMB = { workbench: '会话 / 收录核查', tasks: '任务', settings: '设置' };
+  function go(name) {
+    document.body.dataset.view = name;
+    $('#crumb-tail').textContent = CRUMB[name] || name;
+    $$('.view').forEach((v) => { v.hidden = v.id !== 'view-' + name; });
+    $$('.nav a[data-nav]').forEach((a) => {
+      if (a.dataset.nav === name) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+  }
+
+  function renderRail() {
+    const doneN = SEED.todos.filter((x) => x.s === 'done').length;
+    const running = SEED.jobs.filter((j) => j.state === 'run').length;
+
+    const todos = SEED.todos.map((x) => {
+      const cls = x.s === 'done' ? 'd' : (x.s === 'run' ? 'p' : '');
+      const mark = x.s === 'done' ? '✓' : (x.s === 'run' ? '▸' : '');
+      return `<div><span class="box ${cls}">${mark}</span><span class="${x.s === 'done' ? 'done' : ''}">${ESC(x.t)}</span></div>`;
+    }).join('');
+
+    const jobs = SEED.jobs.map((j) => {
+      const done = j.state === 'done';
+      const w = done ? 100 : j.pct;
+      return `<div class="job">
+        <div class="job-h">${ESC(j.t)}<span class="id">${ESC(j.id)}</span></div>
+        <div class="bar"><i class="${done ? 'ok' : ''}" style="width:${w}%"></i></div>
+        <div class="job-m"><span>${done ? '已完成' : '运行中'}</span><span class="num">${done ? ESC(j.note) : j.pct + '%'}</span></div>
+      </div>`;
+    }).join('');
+
+    const agents = SEED.agents.map((a) =>
+      `<div class="agents"><span class="av">${ESC(a.av)}</span><span>${ESC(a.name)} ${ESC(a.text)}</span></div>`
+    ).join('');
+
+    const files = SEED.artifacts.map((f) =>
+      `<button class="file" data-artifact="${ESC(f.path)}" title="${ESC(f.path)}">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg>
+        <span class="nm">${ESC(f.name)}</span><span class="sz">${ESC(f.size)}</span>
+      </button>`
+    ).join('');
+
+    $('#rail').innerHTML = `
+      <section>
+        <h3>待办 <span class="n">${doneN} / ${SEED.todos.length}</span></h3>
+        <div class="todo">${todos}</div>
+      </section>
+      <section>
+        <h3>后台作业 <span class="n">${SEED.jobs.length}</span></h3>
+        ${jobs}
+      </section>
+      <section>
+        <h3>子代理 <span class="n">${SEED.agents.length}</span></h3>
+        ${agents}
+      </section>
+      <section>
+        <h3>产物 <span class="n">${SEED.artifacts.length}</span></h3>
+        ${files}
+      </section>
+      <section class="money">
+        <h3 style="margin-bottom:6px">本轮消耗</h3>
+        <div class="big">${ESC(SEED.usage.tokens)}<small>tokens · ${ESC(SEED.usage.cny)}</small></div>
+        <div class="split"><span>输入 <b>${ESC(SEED.usage.inp)}</b></span><span>输出 <b>${ESC(SEED.usage.out)}</b></span><span>命中 <b>${ESC(SEED.usage.cache)}</b></span></div>
+      </section>`;
+
+    $('#bg-label').textContent = `后台 ${running}`;
+    $('#bg-pill').querySelector('.dot').className = running ? 'dot run' : 'dot ok';
+  }
+
+  const STATUS = {
+    run: { cls: 'run', dot: 'run', text: '运行中' },
+    wait: { cls: 'wait', dot: 'run', text: '待你批准' },
+    done: { cls: 'run', dot: 'ok', text: '已完成' },
+    stopped: { cls: '', dot: '', text: '已中断' }
+  };
+
+  function renderTasks() {
+    const rows = SEED.tasks
+      .filter((t) => S.filter === 'all' || t.state === S.filter)
+      .slice()
+      .sort((a, b) => (S.sortByCost ? parseFloat(b.cost) - parseFloat(a.cost) : 0));
+
+    const body = $('#tasks-body');
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="5"><div class="empty">这个筛选下没有任务</div></td></tr>`;
+    } else {
+      body.innerHTML = rows.map((t) => {
+        const st = STATUS[t.state] || STATUS.stopped;
+        return `<tr data-state="${t.state}">
+          <td><div class="rname">${ESC(t.name)}</div><div class="rsub">${ESC(t.sub)}</div></td>
+          <td><span class="status ${st.cls}"><span class="dot ${st.dot}"></span>${st.text}</span></td>
+          <td class="mono">${ESC(t.step)}</td>
+          <td class="r mono">${ESC(t.dur)}</td>
+          <td class="r mono">${ESC(t.cost)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    const wait = SEED.tasks.filter((t) => t.state === 'wait').length;
+    const run = SEED.tasks.filter((t) => t.state === 'run').length;
+    $('#tasks-summary').innerHTML =
+      `<span>最近 ${SEED.tasks.length} 条</span><span class="sep"></span>` +
+      `<span><span class="dot run" style="display:inline-block;vertical-align:1px"></span> ${run} 个在跑</span>` +
+      `<span class="sep"></span><span>${wait} 个在等你批准</span>`;
+
+    const count = $('#nav-count');
+    count.textContent = String(wait);
+    count.dataset.zero = wait ? '0' : '1';
+  }
+
+  function setEngine(st) {
+    if (!st) return;
+    S.engine = st;
+    const dot = $('#engine-dot');
+    const label = $('#engine-label');
+    const pill = $('#engine-pill');
+
+    if (st.reachable) {
+      dot.className = 'dot ok';
+      label.textContent = st.running ? `引擎 ${st.pid || ''}`.trim() : '引擎已连';
+      pill.dataset.state = 'on';
+      pill.title = `${st.url}${st.pid ? ' · 由本应用托管 pid ' + st.pid : ' · 外部进程'}`;
+    } else if (st.running) {
+      dot.className = 'dot warn';
+      label.textContent = '引擎启动中';
+      pill.dataset.state = 'on';
+      pill.title = `${st.url} · 端口还没通`;
+    } else {
+      dot.className = 'dot';
+      label.textContent = '引擎未连';
+      pill.dataset.state = 'off';
+      pill.title = `${st.url || ''} · 没有服务在跑`;
+    }
+
+    $('#engine-state-text').textContent = st.reachable
+      ? `已连通 ${st.url}${st.pid ? ' · pid ' + st.pid : ' · 外部进程'}`
+      : (st.running ? `进程已起，端口未通 ${st.url}` : `未运行 · ${st.url || ''}`);
+  }
+
+  async function refreshEngine() {
+    if (!WB.native) return;
+    if (document.hidden) return;
+    const st = await WB.tryCall('engine_status');
+    if (st) setEngine(st);
+  }
+
+  function fillForm() {
+    const s = S.settings;
+    const radio = $(`#set-approval input[value="${s.approval}"]`);
+    if (radio) radio.checked = true;
+    $('#set-model').firstChild.textContent = s.model + ' ';
+    $('#sw-downgrade').setAttribute('aria-checked', String(!!s.downgrade_over_budget));
+    $('#set-budget').value = '￥ ' + Number(s.budget_cny || 0).toFixed(2);
+    $('#sw-terminal').setAttribute('aria-checked', String(!!s.tools.terminal));
+    $('#sw-fetch').setAttribute('aria-checked', String(!!s.tools.fetch));
+    $('#sw-search').setAttribute('aria-checked', String(!!s.tools.search));
+    $('#sw-subagent').setAttribute('aria-checked', String(!!s.tools.subagent));
+    $('#set-workspace').value = s.workspace_root || '';
+    $('#cfg-command').value = s.engine.command || '';
+    $('#cfg-args').value = (s.engine.args || []).join(' ');
+    $('#cfg-url').value = s.engine.url || '';
+    $('#sw-autostart').setAttribute('aria-checked', String(!!s.engine.autostart));
+    $('#sw-killonexit').setAttribute('aria-checked', String(!!s.engine.kill_on_exit));
+    $('#cfg-prompt-path').value = s.engine.prompt_path || '';
+    $('#cfg-approve-path').value = s.engine.approve_path || '';
+    $('#chip-model').firstChild.textContent = s.model + ' ';
+    $('#set-meta').textContent = '字段与 settings.json 一一对应 · 保存后立即生效';
+  }
+
+  function readForm() {
+    const s = clone(S.settings);
+    const picked = $('#set-approval input:checked');
+    s.approval = picked ? picked.value : 'risky';
+    s.model = $('#set-model').firstChild.textContent.trim();
+    s.budget_cny = parseFloat(String($('#set-budget').value).replace(/[^\d.]/g, '')) || 0;
+    s.downgrade_over_budget = $('#sw-downgrade').getAttribute('aria-checked') === 'true';
+    s.tools.terminal = $('#sw-terminal').getAttribute('aria-checked') === 'true';
+    s.tools.fetch = $('#sw-fetch').getAttribute('aria-checked') === 'true';
+    s.tools.search = $('#sw-search').getAttribute('aria-checked') === 'true';
+    s.tools.subagent = $('#sw-subagent').getAttribute('aria-checked') === 'true';
+    s.workspace_root = $('#set-workspace').value.trim();
+    s.engine.command = $('#cfg-command').value.trim();
+    s.engine.args = $('#cfg-args').value.trim() ? $('#cfg-args').value.trim().split(/\s+/) : [];
+    s.engine.url = $('#cfg-url').value.trim();
+    s.engine.autostart = $('#sw-autostart').getAttribute('aria-checked') === 'true';
+    s.engine.kill_on_exit = $('#sw-killonexit').getAttribute('aria-checked') === 'true';
+    s.engine.prompt_path = $('#cfg-prompt-path').value.trim();
+    s.engine.approve_path = $('#cfg-approve-path').value.trim();
+    return s;
+  }
+
+  async function saveSettings() {
+    const next = readForm();
+    S.settings = next;
+    if (WB.native) {
+      const ok = await WB.tryCall('settings_save', { settings: next });
+      if (ok === null) { toast('保存失败：写不进配置文件', 'err'); return; }
+    } else {
+      try { localStorage.setItem(LS, JSON.stringify(next)); } catch (e) { /* 隐私模式下忽略 */ }
+    }
+    applyTheme();
+    toast('已保存');
+    refreshEngine();
+  }
+
+  async function decide(kind) {
+    const label = { approve: '批准并继续', type: '改成只补类型', reject: '拒绝' }[kind] || kind;
+    const path = ($('#cfg-approve-path').value || S.settings.engine.approve_path || '').trim();
+    let note;
+
+    if (path && S.engine.reachable) {
+      const r = await WB.tryCall('engine_http', {
+        method: 'POST',
+        path,
+        body: JSON.stringify({ run: SEED.run.id, step: SEED.run.step, decision: kind })
+      });
+      if (!r) { toast('审批没发出去：引擎无响应', 'err'); return; }
+      if (r.status >= 400) { toast(`审批被引擎拒绝（HTTP ${r.status}）`, 'err'); console.warn('[wb] approve', r); return; }
+      note = `已提交引擎（HTTP ${r.status}）`;
+    } else {
+      note = path ? '引擎未连，只记在本地' : '没接审批接口，只记在本地';
+    }
+
+    S.decisions.push({ run: SEED.run.id, kind, at: Date.now() });
+    try { localStorage.setItem('wb.decisions', JSON.stringify(S.decisions)); } catch (e) { /* 忽略 */ }
+
+    const card = $('#approve');
+    const node = $('#node-4');
+    card.classList.add('done');
+    card.innerHTML = kind === 'reject'
+      ? '<div class="approve-h">已拒绝 · 任务停在这一步</div><p style="margin-bottom:0">不会继续执行。想换个做法就重新发起，或在下面直接说要求。</p>'
+      : `<div class="approve-h">✓ ${ESC(label)} · 正在执行</div><p style="margin-bottom:0">补类型 → 重跑构建 → 截图。完成后这一条会自动变成「完成」。</p>`;
+
+    if (kind === 'reject') {
+      node.classList.remove('wait', 'run', 'done');
+      node.classList.add('todo');
+      node.textContent = String(SEED.run.step);
+      $('#run-state-text').textContent = `已拒绝 · 第 ${SEED.run.step} / ${SEED.run.steps} 步`;
+    } else {
+      node.classList.remove('wait', 'todo', 'done');
+      node.classList.add('run');
+      node.textContent = '▸';
+      $('#run-state-text').textContent = `运行中 · 第 ${SEED.run.step} / ${SEED.run.steps} 步`;
+    }
+    toast(`${label} · ${note}`);
+  }
+
+  async function send() {
+    const el = $('#composer-input');
+    const text = el.value.trim();
+    if (!text) return;
+
+    const path = ($('#cfg-prompt-path').value || S.settings.engine.prompt_path || '').trim();
+    if (!path) { toast('没接发消息接口：去设置里填一个路径，或先把这段流程走通', 'err'); return; }
+    if (!S.engine.reachable) { toast('引擎没连上，消息没发出去', 'err'); return; }
+
+    const r = await WB.tryCall('engine_http', {
+      method: 'POST', path, body: JSON.stringify({ run: SEED.run.id, prompt: text })
+    });
+    if (!r) { toast('发不出去：引擎无响应', 'err'); return; }
+    if (r.status >= 400) { toast(`引擎拒绝（HTTP ${r.status}）`, 'err'); return; }
+    el.value = '';
+    toast(`已发送（HTTP ${r.status}）`);
+  }
+
+  function startClock() {
+    setInterval(() => {
+      if (document.hidden) return;
+      if (document.body.dataset.view !== 'workbench') return;
+      S.elapsed += 1;
+      const m = Math.floor(S.elapsed / 60);
+      const s = S.elapsed % 60;
+      const h = Math.floor(m / 60);
+      $('#run-elapsed').textContent = h > 0
+        ? `${h} 时 ${pad(m % 60)} 分 ${pad(s)} 秒`
+        : `${m} 分 ${pad(s)} 秒`;
+    }, 1000);
+  }
+
+  function wire() {
+    $$('.nav a[data-nav]').forEach((a) => {
+      a.addEventListener('click', (e) => { e.preventDefault(); go(a.dataset.nav); });
+    });
+
+    $('#theme-btn').addEventListener('click', () => {
+      S.settings.theme = S.settings.theme === 'dark' ? 'light' : 'dark';
+      applyTheme();
+      if (WB.native) WB.tryCall('settings_save', { settings: S.settings });
+      else { try { localStorage.setItem(LS, JSON.stringify(S.settings)); } catch (e) {} }
+    });
+
+    $$('.winctl button').forEach((b) => {
+      b.addEventListener('click', () => {
+        const k = b.dataset.win;
+        if (k === 'min') WB.minimize();
+        else if (k === 'max') WB.toggleMax();
+        else if (k === 'close') WB.close();
+      });
+    });
+
+    $('#engine-pill').addEventListener('click', async () => {
+      if (!WB.native) { toast('浏览器里跑，没有本机引擎可用'); return; }
+      toast('探测中…');
+      await refreshEngine();
+    });
+
+    $('#bg-pill').addEventListener('click', () => go('tasks'));
+
+    $('#btn-approve').addEventListener('click', () => decide('approve'));
+    $('#btn-approve-type').addEventListener('click', () => decide('type'));
+    $('#btn-reject').addEventListener('click', () => decide('reject'));
+    $('#link-diff').addEventListener('click', (e) => { e.preventDefault(); toast('diff 视图还没做，下一步补'); });
+
+    $('#btn-abort').addEventListener('click', () => toast('中断需要引擎支持，当前只是界面动作'));
+
+    $('#rail').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-artifact]');
+      if (!btn) return;
+      const p = btn.dataset.artifact;
+      if (!WB.native) { toast(p); return; }
+      const r = await WB.tryCall('reveal_path', { path: p });
+      if (r === null) toast('打不开：文件不存在或没有权限', 'err');
+    });
+
+    $$('#tasks-filters button[data-filter]').forEach((b) => {
+      b.addEventListener('click', () => {
+        S.filter = b.dataset.filter;
+        $$('#tasks-filters button[data-filter]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        renderTasks();
+      });
+    });
+    $('#btn-sort').addEventListener('click', () => {
+      S.sortByCost = !S.sortByCost;
+      $('#btn-sort').textContent = S.sortByCost ? '按消耗排序' : '按最近活动排序';
+      renderTasks();
+    });
+    $('#tasks-body').addEventListener('click', (e) => {
+      if (e.target.closest('tr')) go('workbench');
+    });
+    $('#btn-new-task').addEventListener('click', () => {
+      go('workbench');
+      $('#composer-input').focus();
+      toast('在下面说清要做什么，就会起一个新的');
+    });
+
+    $$('.sw').forEach((s) => s.addEventListener('click', () => {
+      s.setAttribute('aria-checked', s.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+    }));
+
+    $('#btn-save').addEventListener('click', saveSettings);
+    $('#btn-reset').addEventListener('click', () => {
+      S.settings = clone(DEFAULTS);
+      fillForm();
+      applyTheme();
+      toast('已恢复默认，点保存才生效');
+    });
+
+    $('#btn-engine-start').addEventListener('click', async () => {
+      if (!WB.native) { toast('浏览器里跑，没有本机进程可拉'); return; }
+      toast('正在拉起引擎…');
+      const st = await WB.tryCall('engine_start');
+      if (st) { setEngine(st); toast(st.reachable ? '引擎已连通' : '进程起了，端口还没通', st.reachable ? '' : 'err'); }
+      else toast('启动失败，看设置里的路径对不对', 'err');
+    });
+    $('#btn-engine-stop').addEventListener('click', async () => {
+      if (!WB.native) return;
+      const st = await WB.tryCall('engine_stop');
+      if (st) { setEngine(st); toast('已停止'); }
+    });
+
+    $('#composer-input').addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
+    });
+    $('#btn-send').addEventListener('click', send);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') $('#toast').hidden = true;
+    });
+  }
+
+  async function boot() {
+    applyTheme();
+    renderRail();
+    renderTasks();
+    wire();
+    startClock();
+
+    if (WB.native) {
+      const s = await WB.tryCall('settings_load');
+      if (s && typeof s === 'object') S.settings = Object.assign(clone(DEFAULTS), s, { engine: Object.assign(clone(DEFAULTS.engine), s.engine || {}) });
+      const st = await WB.tryCall('engine_status');
+      if (st) setEngine(st);
+      await WB.on('engine-status', () => refreshEngine());
+      setInterval(refreshEngine, 6000);
+    } else {
+      try {
+        const raw = localStorage.getItem(LS);
+        if (raw) S.settings = Object.assign(clone(DEFAULTS), JSON.parse(raw));
+      } catch (e) { /* 忽略坏档 */ }
+      try { S.decisions = JSON.parse(localStorage.getItem('wb.decisions') || '[]'); } catch (e) { /* 忽略 */ }
+    }
+
+    applyTheme();
+    fillForm();
+    go('workbench');
+
+    requestAnimationFrame(() => requestAnimationFrame(() => WB.show()));
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+</body>
+</html>

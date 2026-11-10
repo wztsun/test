@@ -1,0 +1,62 @@
+# AppVeyor 出 Windows exe
+#
+# 为什么有这个文件：GitHub Actions 不是唯一能给 Windows 构建机的服务。
+# AppVeyor 对公开仓库免费，原生 Windows Server + VS2022，构建步骤和 Actions 那套等价。
+#
+# 用法：
+#   1. 仓库推到 GitHub / GitLab / Bitbucket 任意一个
+#   2. appveyor.com 用对应账号登录 → New project → 选中这个仓库
+#   3. 它自动读这个文件开始构建，产物在页面的 Artifacts 里
+#
+# 注意：AppVeyor 免费额度只给公开仓库。私有仓库要付费或试用。
+
+version: 1.0.{build}
+
+image: Visual Studio 2022
+clone_depth: 1
+
+environment:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+# 只在这几个目录变了的时候才触发，避免文档改动也重编
+only_commits:
+  files:
+    - ui/**
+    - src-tauri/**
+    - assets/**
+    - appveyor.yml
+
+install:
+  - ps: |
+      # AppVeyor 的 VS2022 镜像不一定带 Rust，缺就装
+      if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+        Write-Host "→ 安装 rustup"
+        Invoke-WebRequest -Uri "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe" -OutFile rustup-init.exe
+        .\rustup-init.exe -y --default-toolchain stable-msvc --profile minimal
+      }
+      $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+      rustup target add x86_64-pc-windows-msvc
+
+  - ps: |
+      if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+        Write-Host "→ 安装 tauri-cli（几分钟）"
+        cargo install tauri-cli --version "^2" --locked
+      }
+
+build_script:
+  - ps: cargo tauri icon assets/icon.svg -o src-tauri/icons
+  - ps: cargo tauri build
+
+artifacts:
+  - path: src-tauri\target\release\workbench.exe
+    name: workbench.exe
+  - path: src-tauri\target\release\bundle\nsis\*.exe
+    name: installer
+
+cache:
+  - src-tauri\target -> Cargo.lock, src-tauri\Cargo.toml
+
+# 出错时把关键日志贴出来，方便判断是图标、权限标识符还是 NSIS 的问题
+on_failure:
+  - ps: Get-ChildItem src-tauri\target\release -Filter *.exe -ErrorAction SilentlyContinue | Select-Object Name, Length

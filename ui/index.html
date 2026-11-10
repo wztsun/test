@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Workbench</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body data-view="workbench">
+<div class="win">
+
+  <!-- ───── 标题条（自绘，decorations:false）───── -->
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="crumb" data-tauri-drag-region>
+      <b>workbench</b><span>/</span><span id="crumb-tail">会话 / 收录核查</span>
+    </div>
+
+    <div class="win-right">
+      <button class="pill" id="engine-pill" data-state="off" title="引擎连接状态">
+        <span class="dot" id="engine-dot"></span><span id="engine-label">引擎未连</span>
+      </button>
+      <button class="pill" id="bg-pill" title="后台作业">
+        <span class="dot run"></span><span id="bg-label">后台 2</span>
+      </button>
+      <button class="pill" id="theme-btn" aria-label="切换深浅色">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6"/></svg>
+        <span id="theme-label">浅色</span>
+      </button>
+
+      <!-- 仅 Windows：原生窗口控件（拖拽/最小化/最大化/关闭） -->
+      <div class="winctl">
+        <button data-win="min" aria-label="最小化">
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2"><path d="M2 5h6"/></svg>
+        </button>
+        <button data-win="max" aria-label="最大化">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.2" y="2.2" width="5.6" height="5.6" rx=".6"/></svg>
+        </button>
+        <button data-win="close" aria-label="关闭">
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.2"><path d="M2.6 2.6l4.8 4.8M7.4 2.6L2.6 7.4"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───── 侧栏 ───── -->
+  <aside class="side">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 4.5 15.5 12 6 19.5"/><path d="M13.5 4.5 21 12l-7.5 7.5" opacity=".45"/>
+      </svg>
+      <div><div class="brand-name">Workbench</div><div class="brand-sub">DEEPSEEK HARNESS</div></div>
+    </div>
+
+    <button class="ws" id="ws-btn">
+      <span class="av">秀</span><span class="who" id="ws-name">天下秀 · 增长组</span>
+      <svg class="caret" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg>
+    </button>
+
+    <nav class="nav">
+      <a href="#" data-nav="workbench" aria-current="page">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M2 6h12M6 6v7.5"/></svg>
+        <span>工作台</span>
+      </a>
+      <a href="#" data-nav="tasks">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>
+        <span>任务</span>
+      </a>
+      <a href="#" data-nav="settings">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1"/></svg>
+        <span>设置</span>
+      </a>
+    </nav>
+
+    <div class="grp">需要你处理</div>
+    <nav class="nav">
+      <a href="#" id="nav-approvals" data-nav="tasks">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5 13.5 5v6L8 13.5 2.5 11V5z"/><path d="M8 8v5.5M8 8l5.5-3M8 8 2.5 5"/></svg>
+        <span>待审批</span><span class="count" id="nav-count">2</span>
+      </a>
+    </nav>
+
+    <div class="side-foot">
+      <div class="meter">
+        <div class="meter-row"><span>本月用量</span><span class="num" id="meter-pct">62%</span></div>
+        <div class="meter-bar"><i id="meter-fill"></i></div>
+      </div>
+      <button class="user"><span class="av">陈</span><span><span class="nm">陈默</span><br><span class="rl">管理员</span></span></button>
+    </div>
+  </aside>
+
+  <!-- ───── 纸面 ───── -->
+  <main class="sheet">
+
+    <!-- ① 工作台 -->
+    <section class="view view-workbench" id="view-workbench">
+      <header class="head">
+        <div class="head-top">
+          <div>
+            <h1 class="title">把 <em>weiq.com</em> 的 Google 收录情况查清楚</h1>
+            <div class="sub">
+              <span class="state" id="run-state"><span class="dot run"></span><span id="run-state-text">运行中 · 第 4 / 6 步</span></span>
+              <span class="sep"></span><span>开始于 <span class="k num">18:26</span></span>
+              <span class="sep"></span><span>已用 <span class="k num" id="run-elapsed">11 分 04 秒</span></span>
+            </div>
+          </div>
+          <div class="head-act">
+            <button class="btn" id="btn-abort">中断</button>
+            <button class="btn" aria-label="更多">···</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="trail">
+        <div class="trail-inner">
+
+          <article class="step">
+            <div class="node done">✓</div>
+            <div>
+              <div class="st">解析任务范围，确认目标域名与核查口径</div>
+              <div class="smeta"><span class="tool">read</span><span>任务说明.md</span><span>·</span><span>口径：近 30 天收录</span></div>
+            </div>
+            <div class="dur">0.6s</div>
+          </article>
+
+          <article class="step">
+            <div class="node done">✓</div>
+            <div>
+              <div class="st">抓取站点自身：首页、robots.txt、sitemap.xml</div>
+              <div class="smeta"><span class="tool">web_fetch</span><span>3 次请求</span><span>·</span><span>robots.txt 404、sitemap.xml 404</span></div>
+            </div>
+            <div class="dur num">4.2s</div>
+          </article>
+
+          <article class="step">
+            <div class="node done">✓</div>
+            <div>
+              <div class="st quiet">交叉核对搜索源，尝试取回 site: 查询结果</div>
+              <div class="smeta">
+                <span class="tool">web_search</span><span>401 鉴权失败</span><span>·</span>
+                <span class="tool">bing</span><span>site: 被忽略</span><span>·</span>
+                <span class="tool">ddg</span><span>403</span>
+              </div>
+              <div class="term">
+<span>$ web_search "site:weiq.com"</span>
+<span class="err">HTTP 401  api key ****bfdf is invalid</span>
+<span class="dim">fallback → cn.bing.com / duckduckgo / brave / ecosia</span>
+<span class="err">429 / 403 / 人机验证 — 均未返回结果</span>
+<span class="dim">结论：拿不到收录条数，改走诊断路径</span>
+              </div>
+            </div>
+            <div class="dur num">12.8s</div>
+          </article>
+
+          <article class="step" id="step-approve">
+            <div class="node wait" id="node-4">!</div>
+            <div>
+              <div class="st">生成诊断报告，并用预览页截图校对</div>
+              <div class="smeta"><span class="tool">bash</span><span>npm run build --workspace apps/web</span><span>·</span><span>重试 2 次后仍失败</span></div>
+              <div class="term">
+<span>$ npm run build --workspace apps/web</span>
+<span class="dim">▲ building 3 entries…</span>
+<span class="err">error TS2304: Cannot find name 'SitemapIndex'.</span>
+<span class="dim">  at src/sitemap/render.ts:41:18</span>
+<span class="dim">exit code 1 · 重试 2 次，同一处失败</span><span class="caret"></span>
+              </div>
+
+              <div class="approve" id="approve">
+                <div class="approve-h">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5v7M8 12.5v.1"/><circle cx="8" cy="8" r="6.2"/></svg>
+                  需要你批准才能继续
+                </div>
+                <p>在 <span class="num">apps/web</span> 里补上缺失的类型定义，然后重跑构建。</p>
+                <p class="why">为什么停下：写文件 + 执行构建，我默认不自己动手。改法是把 <span class="num">SitemapIndex</span> 从 <span class="num">@types/sitemap</span> 引入。</p>
+                <div class="acts">
+                  <button class="btn btn-primary" id="btn-approve">批准并继续</button>
+                  <button class="btn" id="btn-approve-type">改成只补类型</button>
+                  <button class="btn" id="btn-reject">拒绝</button>
+                  <a class="more" href="#" id="link-diff">看完整 diff</a>
+                </div>
+              </div>
+            </div>
+            <div class="dur num">0:47</div>
+          </article>
+
+          <article class="step">
+            <div class="node todo">5</div>
+            <div>
+              <div class="st quiet">截图校对：桌面 1440 与手机 390 两个宽度</div>
+              <div class="smeta"><span class="dim">等待上一步完成</span></div>
+            </div>
+            <div class="dur">—</div>
+          </article>
+
+          <article class="step">
+            <div class="node todo">6</div>
+            <div>
+              <div class="st quiet">汇总成报告，附 sitemap 与 robots 的修复建议</div>
+              <div class="smeta"><span class="dim">等待中</span></div>
+            </div>
+            <div class="dur">—</div>
+          </article>
+
+        </div>
+      </div>
+
+      <aside class="rail" id="rail"></aside>
+
+      <div class="composer">
+        <div class="box">
+          <textarea id="composer-input" placeholder="继续这个任务，或 @ 引用文件…" aria-label="输入"></textarea>
+          <div class="cbar">
+            <button class="icon-btn" aria-label="引用文件">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.5 5.5a2.5 2.5 0 0 1 0 3.5l-1.6 1.6a2.5 2.5 0 0 1-3.5-3.5l.9-.9"/><path d="M6.5 10.5a2.5 2.5 0 0 1 0-3.5l1.6-1.6a2.5 2.5 0 0 1 3.5 3.5l-.9.9"/></svg>
+            </button>
+            <button class="icon-btn" aria-label="附件">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>
+            </button>
+            <span class="sp"></span>
+            <button class="chip" id="chip-model">V4.1 Flash <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg></button>
+            <button class="chip" id="chip-scope">只读 <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg></button>
+            <button class="btn btn-primary send" id="btn-send">发送</button>
+          </div>
+        </div>
+        <div class="hint"><kbd>Ctrl</kbd><kbd>↵</kbd> 发送 · <kbd>⇧</kbd><kbd>↵</kbd> 换行 · 审批请在上方卡片里处理</div>
+      </div>
+    </section>
+
+    <!-- ② 任务列表 -->
+    <section class="view view-page" id="view-tasks" hidden>
+      <header class="page-head">
+        <div>
+          <h1>任务</h1>
+          <div class="sub" id="tasks-summary"></div>
+        </div>
+        <div style="margin-left:auto"><button class="btn btn-primary" id="btn-new-task">新建任务</button></div>
+      </header>
+      <div class="page-body">
+        <div class="filters" id="tasks-filters">
+          <button data-filter="all" aria-pressed="true">全部</button>
+          <button data-filter="run" aria-pressed="false">运行中</button>
+          <button data-filter="wait" aria-pressed="false">待审批</button>
+          <button data-filter="done" aria-pressed="false">已完成</button>
+          <span class="sp"></span>
+          <button id="btn-sort">按最近活动排序</button>
+        </div>
+        <table class="runs">
+          <thead>
+            <tr><th>任务</th><th>状态</th><th>步骤</th><th class="r">耗时</th><th class="r">消耗</th></tr>
+          </thead>
+          <tbody id="tasks-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ③ 设置 -->
+    <section class="view view-page" id="view-settings" hidden>
+      <header class="page-head">
+        <div>
+          <h1>设置</h1>
+          <div class="sub"><span>审批策略、模型、工具范围与引擎</span><span class="sep"></span><span>作用范围：天下秀 · 增长组</span></div>
+        </div>
+      </header>
+      <div class="page-body">
+        <div class="set-wrap">
+
+          <div class="set-sec">
+            <h2>审批</h2>
+            <p class="lead">决定我在动手之前要不要先问你。写得越松，跑得越快，也越需要你信任。</p>
+            <form class="radios" id="set-approval">
+              <label class="radio"><input type="radio" name="approval" value="every"><span><b>每步都确认</b><span>任何写文件、执行命令、访问网络的行为都先停下来问你。</span></span></label>
+              <label class="radio"><input type="radio" name="approval" value="risky" checked><span><b>只确认有风险的操作</b><span>读文件、查网页直接做；写文件、跑构建、删改数据先问你。当前这一轮就停在这条上。</span></span></label>
+              <label class="radio"><input type="radio" name="approval" value="final"><span><b>只在最后确认</b><span>全部做完再给结果，中途不停。适合跑一遍就能重来的任务。</span></span></label>
+            </form>
+          </div>
+
+          <div class="set-sec">
+            <h2>模型</h2>
+            <p class="lead">默认模型，以及超出预算时的降级顺序。</p>
+            <div class="row">
+              <div class="lbl"><b>默认模型</b><span>新任务默认用它起跑</span></div>
+              <button class="select" id="set-model">V4.1 Flash <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4l3 3 3-3"/></svg></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>超预算时降级</b><span>本轮用量超过月预算的 80% 后自动切换</span></div>
+              <button class="sw" id="sw-downgrade" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>月预算上限</b><span>到线就停，不会偷偷继续烧</span></div>
+              <input class="field" id="set-budget" value="￥ 300.00" aria-label="月预算上限" />
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <h2>工具范围</h2>
+            <p class="lead">关掉的工具不会出现在我的工具表里，我也不会被告知它存在。</p>
+            <div class="row">
+              <div class="lbl"><b>终端</b><span>执行 shell 命令，含后台作业</span></div>
+              <button class="sw" id="sw-terminal" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>网页抓取</b><span>读取给定 URL 的正文</span></div>
+              <button class="sw" id="sw-fetch" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>网页搜索</b><span>当前密钥无效，最近 5 次调用均失败</span></div>
+              <button class="sw" id="sw-search" role="switch" aria-checked="false"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>子代理</b><span>把互不依赖的活分出去并行跑</span></div>
+              <button class="sw" id="sw-subagent" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>工作区根目录</b><span>我能读写的边界，出了这个目录要单独批准</span></div>
+              <input class="field wide" id="set-workspace" value="" aria-label="工作区根目录" />
+            </div>
+          </div>
+
+          <div class="set-sec">
+            <h2>引擎</h2>
+            <p class="lead">Workbench 自己不管模型调用，它托管一个本地的 DeepSeek Harness 进程。这里决定怎么找到它、怎么拉起来、关窗时要不要收走。</p>
+            <div class="row">
+              <div class="lbl"><b>可执行文件</b><span>PATH 上的名字或绝对路径；默认 <span class="num">dsh</span></span></div>
+              <input class="field wide" id="cfg-command" value="dsh" aria-label="引擎可执行文件" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>启动参数</b><span>空格分隔，默认 <span class="num">web</span></span></div>
+              <input class="field wide" id="cfg-args" value="web" aria-label="启动参数" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>引擎地址</b><span>端口探测与 HTTP 代理都打这里</span></div>
+              <input class="field wide" id="cfg-url" value="http://127.0.0.1:3080" aria-label="引擎地址" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>开机自动拉起</b><span>启动应用时若没检测到服务，就自己 spawn 一个</span></div>
+              <button class="sw" id="sw-autostart" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>退出时关闭引擎</b><span>只收拾本应用拉起的进程，外部已在跑的不碰</span></div>
+              <button class="sw" id="sw-killonexit" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="row">
+              <div class="lbl"><b>发消息接口</b><span>留空表示未接协议：消息只在本地记账，不会真的发出去</span></div>
+              <input class="field wide" id="cfg-prompt-path" value="" placeholder="/api/..." aria-label="发消息接口路径" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>审批接口</b><span>留空表示未接协议：批准动作只改界面状态</span></div>
+              <input class="field wide" id="cfg-approve-path" value="" placeholder="/api/..." aria-label="审批接口路径" />
+            </div>
+            <div class="row">
+              <div class="lbl"><b>进程控制</b><span id="engine-state-text">未知</span></div>
+              <button class="btn" id="btn-engine-start">启动引擎</button>
+              <button class="btn" id="btn-engine-stop">停止</button>
+            </div>
+          </div>
+
+          <div class="set-foot">
+            <span class="dim" style="font-size:11.5px" id="set-meta">上次修改：—</span>
+            <span class="sp"></span>
+            <button class="btn" id="btn-reset">恢复默认</button>
+            <button class="btn btn-primary" id="btn-save">保存更改</button>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="data.js"></script>
+<script src="bridge.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

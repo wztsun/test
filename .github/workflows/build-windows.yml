@@ -1,0 +1,47 @@
+name: build-windows
+
+# 没有 Windows 机器也能出 exe：推到 GitHub，从 Actions 里下 artifact。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ui/**'
+      - 'src-tauri/**'
+      - 'assets/**'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 安装 tauri-cli
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: 生成图标
+        run: cargo tauri icon assets/icon.svg -o src-tauri/icons
+
+      - name: 编译
+        run: cargo tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workbench-windows-x64
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/workbench.exe
+            src-tauri/target/release/bundle/nsis/*.exe
