@@ -48,7 +48,11 @@ workbench-client/
 │   └── capabilities/default.json
 ├── assets/icon.svg            图标源（构建时派生出 png/ico 全套）
 ├── scripts/build-windows.ps1  Windows 本机构建
-└── .github/workflows/build-windows.yml  CI 出 exe
+├── scripts/push-to-github.sh  推分支、可选打 tag
+├── LICENSE                    MIT
+├── .github/workflows/
+│   ├── build-windows.yml      推 main 出 artifact，用来验证能不能编译
+│   └── release.yml            打 v* tag 自动发 GitHub Release
 ```
 
 ---
@@ -152,11 +156,45 @@ IPC 命令（`ui/bridge.js` 里统一封装）：
 2. **补全协议字段**：把 `prompt_path` / `approve_path` 填成真实路径，跑通一次「发送 → 卡审批 → 批准 → 继续」。
 3. **托盘 + 全局快捷键**：Tauri `tray-icon` 插件，长任务跑着的时候能收窗。
 4. **空态 / 加载态 / 错误态**：任务表空筛选已有；执行轨、产物列表还是种子。
-5. **签名**：内网分发可以省，对外发必须有代码签名，否则 SmartScreen 拦。
+5. **签名**：内网分发可以省，对外发必须有代码签名，否则 SmartScreen 拦。详见下一节。
 
 ---
 
-## 七、开发时的一点约束
+## 七、发布
+
+协议是 MIT（见 `LICENSE`）：别人可以自由使用、修改、闭源再分发。
+
+发版三步：
+
+```bash
+# 1. 改版本号（唯一需要手改的地方）：src-tauri/tauri.conf.json → version
+# 2. 提交、推分支、打 tag（脚本会校验 tag 和 version 对不对得上）
+bash scripts/push-to-github.sh git@github.com:wztsun/test.git v0.1.1
+# 3. 等 release 工作流跑完，去 Releases 页拿包
+```
+
+`.github/workflows/release.yml` 干的事：校验 tag 与 `version` 一致 → 编译 → 把
+`Workbench.exe` 和 `Workbench_x.y.z_x64-setup.exe` 挂到 GitHub Release 上，附自动生成的
+changelog。Release 页的包**不需要登录就能下载**，这点和 Actions 的 artifact 不同，适合直接发给别人。
+
+### 代码签名（还没做）
+
+未签名的 exe 会被 SmartScreen 拦，国内杀软也可能报成木马。两条路：
+
+- **开源免费**：SignPath 的 [open-source 计划](https://signpath.io/solutions/open-source-community)。签名在 CI 里做——这也是它要求项目用受支持的构建系统的原因，本项目的 GitHub Actions 正好符合。
+- **付费**：Certum OV（最便宜的正规选项，年费约一千）或 EV 证书（签完立即有信誉，贵三倍）。
+
+注意签名证书和 TLS 证书是两种东西，Let's Encrypt / certbot 签的那种不能用来签 exe——它不带 code signing 扩展用途。
+
+### 自动更新（还没接）
+
+Tauri updater 用的是自己生成的 minisign 密钥对，跟代码签名证书无关，管的是「更新包没被篡改」。
+接它需要：`bundle.createUpdaterArtifacts: true`、一对密钥（私钥进 Secrets、公钥进配置）、
+以及一个 `latest.json` 的托管位置（Release 附件即可）。
+
+---
+
+## 八、开发时的一点约束
 
 `ui/` 里的三个文件浏览器直接打开也能跑（`WB.native === false`，全部降级为本地演示，配置存 localStorage）。所以调界面不需要编译 Rust——`ui/index.html` 双击就行，这是这个架构最舒服的地方。
 

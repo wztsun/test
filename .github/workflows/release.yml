@@ -1,0 +1,72 @@
+name: release
+
+# 打 tag 即发版：编出 exe 和安装包，直接挂到 GitHub Release 上，用户点开就能下。
+#
+#   git tag v0.1.1 && git push origin v0.1.1
+#
+# 注意 tag 去掉 v 之后必须和 src-tauri/tauri.conf.json 的 version 一致，
+# 否则安装包会叫 0.1.0 而 release 标着 v0.1.1，对不上号。下面有一步专门卡这个。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# 建 release 要写权限。默认的 GITHUB_TOKEN 只读，不声明这一步会 403。
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 tag 与版本号一致
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tag = $env:GITHUB_REF_NAME.TrimStart('v')
+          Write-Host "tag=$tag  version=$ver"
+          if ($ver -ne $tag) {
+            throw "tag $env:GITHUB_REF_NAME 与 tauri.conf.json 的 version $ver 不一致；改 version 后重新打 tag"
+          }
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 安装 tauri-cli
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: 生成图标
+        run: cargo tauri icon assets/icon.svg -o src-tauri/icons
+
+      - name: 编译
+        run: cargo tauri build
+
+      # 装配到一个平面目录：release 附件不该带整条 target 路径
+      - name: 整理产物
+        run: |
+          $out = "dist"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "src-tauri/target/release/workbench.exe" "$out/Workbench.exe"
+          Copy-Item "src-tauri/target/release/bundle/nsis/*.exe" $out
+          Get-ChildItem $out | Format-Table Name, Length
+
+      - name: 发布
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          # 先把包发出来再补说明；想人工过一遍就改成 true
+          prerelease: false
