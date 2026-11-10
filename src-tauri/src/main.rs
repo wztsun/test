@@ -30,8 +30,10 @@ fn main() {
             let handle = app.handle().clone();
 
             // 首启自动拉起引擎。放独立线程：start_engine 会阻塞等端口可用，不能占住 setup。
+            // AppHandle 不是 Copy，线程要各自持有一份，所以这里先 clone 再 move。
+            let engine_handle = handle.clone();
             std::thread::spawn(move || {
-                let cfg = match store::load(&handle) {
+                let cfg = match store::load(&engine_handle) {
                     Ok(s) => s.engine,
                     Err(_) => return,
                 };
@@ -40,10 +42,10 @@ fn main() {
                 }
                 // 已经有服务在跑就直接挂上去，不重复启动。
                 if engine::probe(&cfg.url) {
-                    let _ = engine::emit_status(&handle, "attached");
+                    let _ = engine::emit_status(&engine_handle, "attached");
                     return;
                 }
-                let _ = engine::start_engine(&handle);
+                let _ = engine::start_engine(&engine_handle);
             });
 
             // 窗口是 visible:false 起的，等前端首帧画完再 show。
